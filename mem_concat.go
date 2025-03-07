@@ -233,8 +233,13 @@ func tarGroup(ctx context.Context, client *s3.Client, objectList []*S3Obj, opts 
 			}
 		}
 		defer r.Close()
+		var transformedKey string
+		transformedKey, err = applySedExpression(*o.Key, opts.SedExpression)
+		if err != nil {
+			return nil, err
+		}
 		h := tar.Header{
-			Name:       *o.Key,
+			Name:       transformedKey,
 			Size:       *o.Size,
 			Mode:       0600,
 			ModTime:    *o.LastModified,

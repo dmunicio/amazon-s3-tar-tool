@@ -58,3 +58,75 @@ func TestExtractBucketAndPath(t *testing.T) {
 		})
 	}
 }
+
+func TestApplySedExpression(t *testing.T) {
+	type args struct {
+		expression string
+		input      string
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    string
+		wantErr bool
+	}{
+		{
+			name: "simple replace",
+			args: args{
+				expression: "s/foo/bar/",
+				input:      "foo",
+			},
+			want:    "bar",
+			wantErr: false,
+		},
+		{
+			name: "no match",
+			args: args{
+				expression: "s/foo/bar/",
+				input:      "baz",
+			},
+			want:    "baz",
+			wantErr: false,
+		},
+		{
+			name: "invalid expression",
+			args: args{
+				expression: "s/foo/bar",
+				input:      "foo",
+			},
+			want:    "",
+			wantErr: true,
+		},
+		{
+			name: "multiple matches",
+			args: args{
+				expression: "s/foo/bar/g",
+				input:      "foo foo foo",
+			},
+			want:    "bar bar bar",
+			wantErr: false,
+		},
+		{
+			name: "multiple expressions",
+			args: args{
+				expression: "s/foo/bar/g;s/foz/baz/g",
+				input:      "foo foz",
+			},
+			want:    "bar baz",
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := applySedExpression(tt.args.input, tt.args.expression)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("applySedExpression() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if got != tt.want {
+				t.Errorf("applySedExpression() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+

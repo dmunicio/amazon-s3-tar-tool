@@ -261,8 +261,13 @@ func concatObjAndHeader(ctx context.Context, svc *s3.Client, objectList []*S3Obj
 				p2 = eofPadding
 			}
 			var pairs = []*S3Obj{p1, p2}
-
-			res, err := concater.ConcatObjects(ctx, pairs, opts.DstBucket, key)
+			var transformedKey string
+			transformedKey, err = applySedExpression(key, opts.SedExpression)
+			if err != nil {
+				Infof(ctx, err.Error())
+				transformedKey = key
+			}
+			res, err := concater.ConcatObjects(ctx, pairs, opts.DstBucket, transformedKey)
 			if err != nil {
 				Infof(ctx, err.Error())
 			}
