@@ -340,6 +340,7 @@ func run(args []string) error {
 					UserMaxPartSize:       userPartMaxSize,
 					ObjectTags:            tagSet,
 					PreservePOSIXMetadata: preservePosixMetadata,
+					Exclude:               exclude,
 				}
 				s3opts.DstBucket, s3opts.DstKey = s3tar.ExtractBucketAndPath(archiveFile)
 				s3opts.DstPrefix = filepath.Dir(s3opts.DstKey)
