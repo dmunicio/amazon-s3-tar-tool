@@ -62,6 +62,7 @@ type S3TarS3Options struct {
 	KMSKeyID              string
 	SSEAlgo               types.ServerSideEncryption
 	PreservePOSIXMetadata bool
+	SedExpression         string
 }
 
 func TagsToUrlEncodedString(tagging types.Tagging) string {
@@ -414,6 +415,65 @@ func deleteObjectList(ctx context.Context, svc *s3.Client, opts *S3TarS3Options,
 		}
 	}
 	return nil
+}
+
+func applySedExpression(input, sedExpr string) (string, error) {
+	if sedExpr == "" {
+		return input, nil
+	}
+
+	// Split the sed expression by ";" to handle multiple transformations
+	expressions := strings.Split(sedExpr, ";")
+	var err error
+
+	for _, expr := range expressions {
+		// Validate if the sed expression starts with "s" (substitute)
+		if !strings.HasPrefix(expr, "s") {
+			return "", fmt.Errorf("only 's' (substitute) commands are supported")
+		}
+
+		// Identify the delimiter (character after "s")
+		delimiter := string(expr[1])
+		parts := strings.Split(expr[2:], delimiter)
+
+		// Ensure we have at least 3 parts: s/pattern/replacement/[flags]
+		if len(parts) < 3 {
+			return "", fmt.Errorf("invalid sed syntax, expected: s/pattern/replacement/[flags]")
+		}
+
+		pattern := parts[0] // Regex pattern
+		replacement := parts[1] // Replacement text
+		flags := ""
+		if len(parts) > 2 {
+			flags = parts[2] // Optional flags like g, i
+		}
+
+		// Handle `i` flag (case-insensitive)
+		caseInsensitive := strings.Contains(flags, "i")
+		if caseInsensitive {
+			pattern = "(?i)" + pattern // Prefix regex with case-insensitivity
+		}
+
+		// Compile the regular expression
+		re, compileErr := regexp.Compile(pattern)
+		if compileErr != nil {
+			return "", fmt.Errorf("invalid regex pattern: %v", compileErr)
+		}
+
+		// Handle backreferences (`\1`, `\2`, etc.)
+		replacement = strings.ReplaceAll(replacement, `\`, "$") // Convert \1 to $1 for Go
+
+		// Perform the replacement
+		if strings.Contains(flags, "g") {
+			input = re.ReplaceAllString(input, replacement) // Global replacement
+		} else {
+			input = re.ReplaceAllStringFunc(input, func(match string) string {
+				return re.ReplaceAllString(match, replacement) // First occurrence only
+			})
+		}
+	}
+
+	return input, err
 }
 
 func randomHex(n int) (string, error) {

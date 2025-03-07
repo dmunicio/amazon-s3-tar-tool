@@ -72,7 +72,7 @@ func run(args []string) error {
 	var kmsKeyID string
 	var sseAlgo string
 	var preservePosixMetadata bool
-
+	var transform string
 	var tagSet types.Tagging
 	var err error
 
@@ -165,6 +165,12 @@ func run(args []string) error {
 				Usage:       "destination to extract | destination of TOC (must be local)",
 				Aliases:     []string{"C"},
 				Destination: &destination,
+			},
+			&cli.StringFlag{
+				Name:        "transform",
+				Value:       "",
+				Usage:       "transform file paths using sed replacement expression sed-expr",
+				Destination: &transform,
 			},
 			&cli.IntFlag{
 				Name:        "goroutines",
@@ -329,6 +335,7 @@ func run(args []string) error {
 					Region:                region,
 					EndpointUrl:           endpointUrl,
 					ConcatInMemory:        concatInMemory,
+					SedExpression:         transform,
 					UrlDecode:             urlDecode,
 					UserMaxPartSize:       userPartMaxSize,
 					ObjectTags:            tagSet,
