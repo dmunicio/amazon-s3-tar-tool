@@ -169,7 +169,7 @@ func run(args []string) error {
 			&cli.StringFlag{
 				Name:        "transform",
 				Value:       "",
-				Usage:       "transform file paths using sed replacement expression sed-expr",
+				Usage:       "transform file paths using sed replacement expressions",
 				Destination: &transform,
 			},
 			&cli.IntFlag{

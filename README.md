@@ -148,6 +148,26 @@ other-folder/image2.jpg
 other-folder/image3.jpg
 ```
 
+### Transform
+If you want to transform the paths you can apply multiple sed expressions separated by ";". This is an example that applies two transformations:
+* remove the folder path and leave all the files in the root
+* rename the files like image1_suffix.jpg to image1.suffix.jpg
+
+```bash
+s3tar --region us-west-2 --transform "s|.*/([^/]+)|\\1|;s|_|.|g" -cf s3://bucket/prefix/archive.tar
+folder/image1_suffix.json
+folder/image1.jpg
+```
+
+### Exclude
+If you want to exclude some files from being added to the tar, you can specify multiple regex expressions separated by "|":
+
+```bash
+s3tar --region us-west-2 --exclude "*.csv|*.tar" -cf s3://bucket/prefix/archive.tar
+folder/myfile.csv
+folder/anotherfile.tar
+folder/image1.jpg
+```
 
 ### Generating manifest files
 
