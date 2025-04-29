@@ -205,8 +205,11 @@ type concatresult struct {
 
 // concatObjAndHeader will only perform pair (obj1 + hdr2) concatenation
 func concatObjAndHeader(ctx context.Context, svc *s3.Client, objectList []*S3Obj, opts *S3TarS3Options) ([]*S3Obj, error) {
-
 	ctx = context.WithValue(ctx, contextKeyS3Client, svc)
+	compiledExpressions, err := compileSedExpressions(opts.SedExpression)
+	if err != nil {
+		return nil, fmt.Errorf("failed to compile sed expressions: %v", err)
+	}
 	concater, err := NewRecursiveConcat(ctx, RecursiveConcatOptions{
 		Client:      svc,
 		Bucket:      opts.DstBucket,
@@ -243,6 +246,7 @@ func concatObjAndHeader(ctx context.Context, svc *s3.Client, objectList []*S3Obj
 		key := filepath.Join(opts.DstPrefix, opts.DstKey+".parts", name)
 		wg.Add()
 		go func(nextObject *S3Obj, obj *S3Obj, key string, partNum int) {
+			defer wg.Done()
 			var p1 = obj
 			var p2 *S3Obj = nil
 			if notLastBlock {
@@ -261,21 +265,19 @@ func concatObjAndHeader(ctx context.Context, svc *s3.Client, objectList []*S3Obj
 				p2 = eofPadding
 			}
 			var pairs = []*S3Obj{p1, p2}
-			var transformedKey string
-			transformedKey, err = applySedExpression(key, opts.SedExpression)
+			transformedKey, err := applyPrecompiledSedExpressions(key, compiledExpressions)
 			if err != nil {
 				Infof(ctx, err.Error())
 				transformedKey = key
 			}
+
 			res, err := concater.ConcatObjects(ctx, pairs, opts.DstBucket, transformedKey)
 			if err != nil {
 				Infof(ctx, err.Error())
 			}
 			res.PartNum = partNum
 			resultsChan <- concatresult{res, err}
-			wg.Done()
 		}(nextObject, obj, key, i+1)
-
 	}
 	go func() {
 		wg.Wait()
@@ -833,6 +835,7 @@ func concatObjects(ctx context.Context, client *s3.Client, trimFirstBytes int, o
 				r, err := client.UploadPartCopy(ctx, &input)
 				if err != nil {
 					Debugf(ctx, "error for s3://%s/%s", *input.Bucket, *input.Key)
+					Debugf(ctx, "CopySourceRange %s", *input.CopySourceRange)
 					panic(err)
 				}
 				m.Lock()

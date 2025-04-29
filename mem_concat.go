@@ -216,13 +216,18 @@ func uploadPart(ctx context.Context, client *s3.Client, uploadId, bucket, key st
 }
 
 func tarGroup(ctx context.Context, client *s3.Client, objectList []*S3Obj, opts *S3TarS3Options) ([]byte, error) {
+	// Compile sed expressions once
+	compiledExpressions, err := compileSedExpressions(opts.SedExpression)
+	if err != nil {
+		return nil, fmt.Errorf("failed to compile sed expressions: %v", err)
+	}
+
 	buf := bytes.Buffer{}
 	tw := tar.NewWriter(&buf)
 
 	for _, o := range objectList {
 		var r io.ReadCloser
 		var s3metadata map[string]string
-		var err error
 		if len(o.Data) > 0 {
 			s3metadata = nil
 			r = io.NopCloser(bytes.NewReader(o.Data))
@@ -233,11 +238,11 @@ func tarGroup(ctx context.Context, client *s3.Client, objectList []*S3Obj, opts 
 			}
 		}
 		defer r.Close()
-		var transformedKey string
-		transformedKey, err = applySedExpression(*o.Key, opts.SedExpression)
+		transformedKey, err := applyPrecompiledSedExpressions(*o.Key, compiledExpressions)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to apply sed expressions to key %s: %v", *o.Key, err)
 		}
+
 		h := tar.Header{
 			Name:       transformedKey,
 			Size:       *o.Size,

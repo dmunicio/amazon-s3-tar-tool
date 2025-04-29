@@ -120,7 +120,7 @@ func TestMatchesRegexp(t *testing.T) {
 	}
 }
 
-func TestApplySedExpression(t *testing.T) {
+func TestApplyPrecompiledSedExpressions(t *testing.T) {
 	type args struct {
 		expression string
 		input      string
@@ -179,13 +179,26 @@ func TestApplySedExpression(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := applySedExpression(tt.args.input, tt.args.expression)
+			// Compile the sed expressions
+			compiledExpressions, err := compileSedExpressions(tt.args.expression)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("applySedExpression() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("compileSedExpressions() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+
+			// If there was an error during compilation, skip applying expressions
+			if err != nil {
+				return
+			}
+
+			// Apply the precompiled sed expressions
+			got, err := applyPrecompiledSedExpressions(tt.args.input, compiledExpressions)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("applyPrecompiledSedExpressions() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			if got != tt.want {
-				t.Errorf("applySedExpression() = %v, want %v", got, tt.want)
+				t.Errorf("applyPrecompiledSedExpressions() = %v, want %v", got, tt.want)
 			}
 		})
 	}

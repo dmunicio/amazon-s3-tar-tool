@@ -28,6 +28,12 @@ import (
 
 type contextKey string
 
+type SedExpression struct {
+	Regex       *regexp.Regexp
+	Replacement string
+	Global      bool
+}
+
 const (
 	contextKeyS3Client = contextKey("s3-client")
 )
@@ -417,63 +423,68 @@ func deleteObjectList(ctx context.Context, svc *s3.Client, opts *S3TarS3Options,
 	return nil
 }
 
-func applySedExpression(input, sedExpr string) (string, error) {
-	if sedExpr == "" {
-		return input, nil
-	}
-
-	// Split the sed expression by ";" to handle multiple transformations
-	expressions := strings.Split(sedExpr, ";")
-	var err error
-
+func applyPrecompiledSedExpressions(input string, expressions []SedExpression) (string, error) {
 	for _, expr := range expressions {
-		// Validate if the sed expression starts with "s" (substitute)
-		if !strings.HasPrefix(expr, "s") {
-			return "", fmt.Errorf("only 's' (substitute) commands are supported")
-		}
-
-		// Identify the delimiter (character after "s")
-		delimiter := string(expr[1])
-		parts := strings.Split(expr[2:], delimiter)
-
-		// Ensure we have at least 3 parts: s/pattern/replacement/[flags]
-		if len(parts) < 3 {
-			return "", fmt.Errorf("invalid sed syntax, expected: s/pattern/replacement/[flags]")
-		}
-
-		pattern := parts[0] // Regex pattern
-		replacement := parts[1] // Replacement text
-		flags := ""
-		if len(parts) > 2 {
-			flags = parts[2] // Optional flags like g, i
-		}
-
-		// Handle `i` flag (case-insensitive)
-		caseInsensitive := strings.Contains(flags, "i")
-		if caseInsensitive {
-			pattern = "(?i)" + pattern // Prefix regex with case-insensitivity
-		}
-
-		// Compile the regular expression
-		re, compileErr := regexp.Compile(pattern)
-		if compileErr != nil {
-			return "", fmt.Errorf("invalid regex pattern: %v", compileErr)
-		}
-
-		// Handle backreferences (`\1`, `\2`, etc.)
-		replacement = strings.ReplaceAll(replacement, `\`, "$") // Convert \1 to $1 for Go
-
-		// Perform the replacement
-		if strings.Contains(flags, "g") {
-			input = re.ReplaceAllString(input, replacement) // Global replacement
+		if expr.Global {
+			input = expr.Regex.ReplaceAllString(input, expr.Replacement)
 		} else {
-			input = re.ReplaceAllStringFunc(input, func(match string) string {
-				return re.ReplaceAllString(match, replacement) // First occurrence only
+			input = expr.Regex.ReplaceAllStringFunc(input, func(match string) string {
+				return expr.Regex.ReplaceAllString(match, expr.Replacement)
 			})
 		}
 	}
+	return input, nil
+}
 
-	return input, err
+func compileSedExpressions(sedExpr string) ([]SedExpression, error) {
+	if sedExpr == "" {
+		return nil, nil
+	}
+
+	expressions := strings.Split(sedExpr, ";")
+	var compiledExpressions []SedExpression
+
+	for _, expr := range expressions {
+		if !strings.HasPrefix(expr, "s") {
+			return nil, fmt.Errorf("only 's' (substitute) commands are supported")
+		}
+
+		delimiter := string(expr[1])
+		parts := strings.Split(expr[2:], delimiter)
+
+		if len(parts) < 3 {
+			return nil, fmt.Errorf("invalid sed syntax, expected: s/pattern/replacement/[flags]")
+		}
+
+		pattern := parts[0]
+		replacement := strings.ReplaceAll(parts[1], `\`, "$") // Convert \1 to $1 for Go
+		flags := ""
+		if len(parts) > 2 {
+			flags = parts[2]
+		}
+
+		// Handle case-insensitive flag
+		if strings.Contains(flags, "i") {
+			pattern = "(?i)" + pattern
+		}
+
+		// Compile the regex
+		re, err := regexp.Compile(pattern)
+		if err != nil {
+			return nil, fmt.Errorf("invalid regex pattern: %v", err)
+		}
+
+		// Determine if the global flag is set
+		global := strings.Contains(flags, "g")
+
+		compiledExpressions = append(compiledExpressions, SedExpression{
+			Regex:       re,
+			Replacement: replacement,
+			Global:      global,
+		})
+	}
+
+	return compiledExpressions, nil
 }
 
 func randomHex(n int) (string, error) {
