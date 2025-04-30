@@ -233,54 +233,54 @@ func concatObjAndHeader(ctx context.Context, svc *s3.Client, objectList []*S3Obj
 	wg := sizedwaitgroup.New(opts.Threads)
 	resultsChan := make(chan concatresult)
 	var bytesAccum int64
-	for i, obj := range objectList {
-		nextIndex := i + 1
-		var notLastBlock = nextIndex < len(objectList)
-		var nextObject *S3Obj
-		if notLastBlock {
-			nextObject = objectList[nextIndex]
-		} else {
-			nextObject = nil
-		}
-
-		name := fmt.Sprintf("%d.part-%d.hdr", i, nextIndex)
-		key := filepath.Join(opts.DstPrefix, opts.DstKey+".parts", name)
-		wg.Add()
-		go func(nextObject *S3Obj, obj *S3Obj, key string, partNum int) {
-			defer wg.Done()
-			var p1 = obj
-			var p2 *S3Obj = nil
+	go func() {
+		for i, obj := range objectList {
+			nextIndex := i + 1
+			var notLastBlock = nextIndex < len(objectList)
+			var nextObject *S3Obj
 			if notLastBlock {
-				var head *s3.HeadObjectOutput
-				if opts.PreservePOSIXMetadata {
-					head = fetchS3ObjectHead(ctx, svc, nextObject)
+				nextObject = objectList[nextIndex]
+			} else {
+				nextObject = nil
+			}
+
+			name := fmt.Sprintf("%d.part-%d.hdr", i, nextIndex)
+			key := filepath.Join(opts.DstPrefix, opts.DstKey+".parts", name)
+			wg.Add()
+			go func(nextObject *S3Obj, obj *S3Obj, key string, partNum int) {
+				defer wg.Done()
+				var p1 = obj
+				var p2 *S3Obj = nil
+				if notLastBlock {
+					var head *s3.HeadObjectOutput
+					if opts.PreservePOSIXMetadata {
+						head = fetchS3ObjectHead(ctx, svc, nextObject)
+					} else {
+						head = nil
+					}
+
+					h := buildHeader(nextObject, p1, false, head)
+					p2 = &h
+					bytesAccum += *p1.Size + *p2.Size
 				} else {
-					head = nil
+					eofPadding := generateLastBlock(bytesAccum+*obj.Size, opts)
+					p2 = eofPadding
+				}
+				var pairs = []*S3Obj{p1, p2}
+				transformedKey, err := applyPrecompiledSedExpressions(key, compiledExpressions)
+				if err != nil {
+					Infof(ctx, err.Error())
+					transformedKey = key
 				}
 
-				h := buildHeader(nextObject, p1, false, head)
-				p2 = &h
-				bytesAccum += *p1.Size + *p2.Size
-			} else {
-				eofPadding := generateLastBlock(bytesAccum+*obj.Size, opts)
-				p2 = eofPadding
-			}
-			var pairs = []*S3Obj{p1, p2}
-			transformedKey, err := applyPrecompiledSedExpressions(key, compiledExpressions)
-			if err != nil {
-				Infof(ctx, err.Error())
-				transformedKey = key
-			}
-
-			res, err := concater.ConcatObjects(ctx, pairs, opts.DstBucket, transformedKey)
-			if err != nil {
-				Infof(ctx, err.Error())
-			}
-			res.PartNum = partNum
-			resultsChan <- concatresult{res, err}
-		}(nextObject, obj, key, i+1)
-	}
-	go func() {
+				res, err := concater.ConcatObjects(ctx, pairs, opts.DstBucket, transformedKey)
+				if err != nil {
+					Infof(ctx, err.Error())
+				}
+				res.PartNum = partNum
+				resultsChan <- concatresult{res, err}
+			}(nextObject, obj, key, i+1)
+		}
 		wg.Wait()
 		close(resultsChan)
 	}()
